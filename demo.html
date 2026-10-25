@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Фоны локаций</title>
+<style>
+  :root { --bg:#0b0720; --ink:#f4ebff; --mute:#c3b2e4; --bar:rgba(12,8,34,.72); --line:rgba(255,226,190,.30); --on:#ffb067; --on-ink:#1a0f2e; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; overflow:hidden; background:var(--bg); color:var(--ink); font:13px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  #stage { position:absolute; overflow:hidden; }
+  #stage.framed { outline:1px solid var(--line); }
+  #ui { position:absolute; z-index:5; left:0; right:0; top:max(8px, env(safe-area-inset-top,0px)); display:flex; flex-wrap:wrap; justify-content:center; gap:6px; padding:0 8px; pointer-events:none; }
+  .grp { display:flex; gap:2px; padding:3px; border-radius:11px; background:var(--bar); border:1px solid var(--line); pointer-events:auto; -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px); align-items:center; }
+  .grp button, .grp select { font:inherit; color:var(--ink); background:transparent; border:0; border-radius:8px; padding:0 10px; min-height:34px; cursor:pointer; white-space:nowrap; }
+  .grp select { background:rgba(255,255,255,.06); padding:0 8px; }
+  .grp select option { color:#111; }
+  .grp button[aria-pressed="true"] { background:var(--on); color:var(--on-ink); font-weight:600; }
+  .grp button:focus-visible, .grp select:focus-visible, .grp input:focus-visible { outline:2px solid var(--ink); outline-offset:1px; }
+  .grp label { color:var(--mute); padding:0 6px; font-variant-numeric:tabular-nums; }
+  .grp input[type=range] { width:110px; accent-color:var(--on); }
+  #chip { position:absolute; z-index:5; left:max(10px, env(safe-area-inset-left,0px)); bottom:max(10px, env(safe-area-inset-bottom,0px)); padding:5px 8px; border-radius:8px; background:var(--bar); border:1px solid var(--line); color:var(--mute); font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre; }
+  body.nochrome #ui, body.nochrome #chip { display:none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="ui">
+  <div class="grp"><select id="loc" aria-label="Локация"></select></div>
+  <div class="grp" id="timeGrp" role="group" aria-label="Время суток">
+    <button type="button" data-time="auto" aria-pressed="true" title="По часам устройства или по ползунку">Авто</button>
+    <button type="button" data-time="day" aria-pressed="false">День</button>
+    <button type="button" data-time="night" aria-pressed="false">Ночь</button>
+  </div>
+  <div class="grp"><label for="hour" id="hourLbl">Час: —</label><input id="hour" type="range" min="0" max="24" step="0.5" value="12" aria-label="Время в игре, час"></div>
+  <div class="grp" id="modeGrp" role="group" aria-label="Формат экрана">
+    <button type="button" data-mode="auto" aria-pressed="true">Экран</button>
+    <button type="button" data-mode="monitor" aria-pressed="false">Монитор</button>
+    <button type="button" data-mode="phone" aria-pressed="false">Телефон</button>
+    <button type="button" data-mode="ultra" aria-pressed="false">Широкий</button>
+  </div>
+</div>
+<button type="button" id="chip" aria-label="Размер и скорость"></button>
+
+<script src="pixelbg.all.js"></script>
+<script>
+(() => {
+'use strict';
+const LOCS = [['desert','Пустыня'],['forest','Лес'],['sea','Море'],['ocean','Океан'],['beach','Пляж'],['savanna','Саванна'],['taiga','Тайга'],['jungle','Джунгли'],['mountains','Горы'],['city_magic','Город: магия'],['city_steampunk','Город: стимпанк'],['city_hybrid','Город: магия и стимпанк']];
+const ASPECT = { monitor: 16 / 9, phone: 9 / 19.5, ultra: 21 / 9 };
+const qs = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+if (qs.get('chrome') === '0') document.body.classList.add('nochrome');
+let loc = LOCS.some(l => l[0] === qs.get('loc')) ? qs.get('loc') : 'desert';
+let mode = ASPECT[qs.get('mode')] ? qs.get('mode') : 'auto', time = ['day','night'].includes(qs.get('time')) ? qs.get('time') : 'auto';
+const stage = $('stage'), sel = $('loc'), hour = $('hour');
+for (const [k, t] of LOCS) { const o = document.createElement('option'); o.value = k; o.textContent = t; sel.appendChild(o); }
+sel.value = loc;
+hour.value = qs.has('hour') ? qs.get('hour') : Math.round(PixelBG.localHour() * 2) / 2;
+let bg = null, chipOpen = qs.has('frame');
+
+function loadScene(name) {
+  return new Promise((res, rej) => {
+    if (PixelBG.scenes().includes(name)) return res();
+    const s = document.createElement('script'); s.src = 'scenes/' + name + '.js';
+    s.onload = res; s.onerror = () => rej(new Error('нет файла scenes/' + name + '.js')); document.head.appendChild(s);
+  });
+}
+function frame() {
+  const vw = innerWidth, vh = innerHeight; let w = vw, h = vh, l = 0, t = 0;
+  if (mode !== 'auto') {
+    const ar = ASPECT[mode], top = $('ui').offsetHeight + 20, aw = vw - 24, ah = vh - top - 12;
+    w = Math.min(aw, ah * ar); h = w / ar; l = (vw - w) / 2; t = top + (ah - h) / 2;
+  }
+  stage.classList.toggle('framed', mode !== 'auto');
+  Object.assign(stage.style, { left: l + 'px', top: t + 'px', width: w + 'px', height: h + 'px' });
+}
+function hourText() { const h = +hour.value; return 'Час: ' + String(Math.floor(h)).padStart(2, '0') + ':' + (h % 1 ? '30' : '00'); }
+function chipText() {
+  if (!bg) return ''; const i = bg.info;
+  return chipOpen ? `${i.location} · ${i.variant === 'day' ? 'день' : 'ночь'}\n${i.W}×${i.H} пикс. · ×${i.S}\nкадр ${i.ms.toFixed(2)} мс` : `${i.W}×${i.H} · ×${i.S}`;
+}
+async function show(name) {
+  try { await loadScene(name); } catch (e) { console.error(e.message); $('chip').textContent = e.message; return; }
+  loc = name; sel.value = name;
+  if (!bg) {
+    frame();
+    bg = PixelBG.mount(stage, { location: name, time, frame: qs.has('frame') ? parseInt(qs.get('frame'), 10) : null, fade: qs.has('frame') ? 0 : 1200 });
+    if (time === 'auto' && qs.has('hour')) bg.setHour(+hour.value);
+    window.__bg = bg;
+  } else bg.setLocation(name);
+}
+function sync() { for (const b of document.querySelectorAll('[data-time]')) b.setAttribute('aria-pressed', String(b.dataset.time === time)); for (const b of document.querySelectorAll('[data-mode]')) b.setAttribute('aria-pressed', String(b.dataset.mode === mode)); $('hourLbl').textContent = hourText(); hour.disabled = time !== 'auto'; }
+sel.addEventListener('change', () => show(sel.value));
+for (const b of document.querySelectorAll('[data-time]')) b.addEventListener('click', () => { time = b.dataset.time; if (bg) bg.setTime(time); sync(); });
+for (const b of document.querySelectorAll('[data-mode]')) b.addEventListener('click', () => { mode = b.dataset.mode; frame(); sync(); });
+hour.addEventListener('input', () => { sync(); if (bg) bg.setHour(+hour.value); });
+$('chip').addEventListener('click', () => { chipOpen = !chipOpen; });
+addEventListener('resize', frame);
+setInterval(() => { $('chip').textContent = chipText(); }, 400);
+sync(); show(loc);
+})();
+</script>
+</body>
+</html>
